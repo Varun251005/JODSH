@@ -33,6 +33,28 @@ fn main() {
         let program = parts[0];
         let arguments = &parts[1..];
 
+        // Built-in command: cd
+        if program == "cd" {
+            if arguments.is_empty() {
+                eprintln!("jodsh: cd: missing directory");
+            } else {
+                let target_dir = arguments[0];
+                if let Err(e) = std::env::set_current_dir(target_dir) {
+                    eprintln!("jodsh: cd: {}", e);
+                }
+            }
+            continue;
+        }
+
+        // Built-in command: pwd
+        if program == "pwd" {
+            match std::env::current_dir() {
+                Ok(dir) => println!("{}", dir.display()),
+                Err(e) => eprintln!("jodsh: pwd: {}", e),
+            }
+            continue;
+        }
+
         // 7. Execute the command
         match Command::new(program)
             .args(arguments)
