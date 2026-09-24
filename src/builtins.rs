@@ -25,6 +25,12 @@ pub fn execute(program: &str, arguments: &[&str]) -> BuiltinStatus {
             }
             BuiltinStatus::Handled
         }
+        "env" => {
+            for (key, value) in std::env::vars() {
+                println!("{}={}", key, value);
+            }
+            BuiltinStatus::Handled
+        }
         _ => BuiltinStatus::NotHandled,
     }
 }
