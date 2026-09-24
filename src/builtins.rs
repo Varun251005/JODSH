@@ -31,7 +31,30 @@ pub fn execute(program: &str, arguments: &[&str]) -> BuiltinStatus {
             }
             BuiltinStatus::Handled
         }
+        "export" => {
+            if arguments.is_empty() {
+                eprintln!("jodsh: export: missing argument");
+            } else {
+                let arg = arguments[0];
+                if let Some(pos) = arg.find('=') {
+                    let key = &arg[..pos];
+                    let value = &arg[pos + 1..];
+                    unsafe { std::env::set_var(key, value) };
+                } else {
+                    // Fallback if no '=' is provided
+                    unsafe { std::env::set_var(arg, "") };
+                }
+            }
+            BuiltinStatus::Handled
+        }
+        "unset" => {
+            if arguments.is_empty() {
+                eprintln!("jodsh: unset: missing variable name");
+            } else {
+                unsafe { std::env::remove_var(arguments[0]) };
+            }
+            BuiltinStatus::Handled
+        }
         _ => BuiltinStatus::NotHandled,
     }
 }
-
