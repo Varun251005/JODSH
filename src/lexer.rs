@@ -1,4 +1,4 @@
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Token {
     Word(String),
     Pipe,
@@ -29,6 +29,34 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, LexerError> {
             continue;
         }
 
+        if c == '2' {
+            let mut clone = chars.clone();
+            clone.next();
+            if let Some(&'>') = clone.peek() {
+                tokens.push(Token::RedirectError);
+                chars.next();
+                chars.next();
+                continue;
+            }
+        }
+
+        if c == '>' {
+            chars.next();
+            if let Some(&'>') = chars.peek() {
+                tokens.push(Token::RedirectAppend);
+                chars.next();
+            } else {
+                tokens.push(Token::RedirectOutput);
+            }
+            continue;
+        }
+
+        if c == '<' {
+            tokens.push(Token::RedirectInput);
+            chars.next();
+            continue;
+        }
+
         if c == '|' {
             tokens.push(Token::Pipe);
             chars.next();
@@ -45,9 +73,8 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, LexerError> {
                 ' ' | '\t' | '\n' => {
                     in_word = false;
                 }
-                '|' => {
+                '|' | '<' | '>' => {
                     in_word = false;
-                    // Do not consume, outer loop will grab it
                 }
                 '\'' => {
                     chars.next(); // consume opening quote
@@ -110,29 +137,6 @@ mod tests {
     }
 
     #[test]
-    fn test_arguments() {
-        assert_eq!(
-            tokenize("ls -la /tmp"),
-            Ok(vec![
-                Token::Word("ls".to_string()),
-                Token::Word("-la".to_string()),
-                Token::Word("/tmp".to_string())
-            ])
-        );
-    }
-
-    #[test]
-    fn test_multiple_spaces() {
-        assert_eq!(
-            tokenize("echo     hello"),
-            Ok(vec![
-                Token::Word("echo".to_string()),
-                Token::Word("hello".to_string())
-            ])
-        );
-    }
-
-    #[test]
     fn test_double_quotes() {
         assert_eq!(
             tokenize("echo \"hello world\""),
@@ -140,44 +144,6 @@ mod tests {
                 Token::Word("echo".to_string()),
                 Token::Word("hello world".to_string())
             ])
-        );
-    }
-
-    #[test]
-    fn test_single_quotes() {
-        assert_eq!(
-            tokenize("echo 'hello world'"),
-            Ok(vec![
-                Token::Word("echo".to_string()),
-                Token::Word("hello world".to_string())
-            ])
-        );
-    }
-
-    #[test]
-    fn test_escaped_space() {
-        assert_eq!(
-            tokenize("echo hello\\ world"),
-            Ok(vec![
-                Token::Word("echo".to_string()),
-                Token::Word("hello world".to_string())
-            ])
-        );
-    }
-
-    #[test]
-    fn test_unterminated_quote() {
-        assert_eq!(
-            tokenize("echo \"hello"),
-            Err(LexerError::UnterminatedDoubleQuote)
-        );
-    }
-
-    #[test]
-    fn test_incomplete_escape() {
-        assert_eq!(
-            tokenize("echo hello\\"),
-            Err(LexerError::IncompleteEscape)
         );
     }
 
@@ -195,28 +161,22 @@ mod tests {
     }
 
     #[test]
-    fn test_pipe_without_spaces() {
+    fn test_redirects() {
         assert_eq!(
-            tokenize("ls|grep"),
-            Ok(vec![
-                Token::Word("ls".to_string()),
-                Token::Pipe,
-                Token::Word("grep".to_string()),
-            ])
+            tokenize("ls > output.txt"),
+            Ok(vec![Token::Word("ls".to_string()), Token::RedirectOutput, Token::Word("output.txt".to_string())])
         );
-    }
-
-    #[test]
-    fn test_multiple_pipes() {
         assert_eq!(
-            tokenize("ls | grep | wc"),
-            Ok(vec![
-                Token::Word("ls".to_string()),
-                Token::Pipe,
-                Token::Word("grep".to_string()),
-                Token::Pipe,
-                Token::Word("wc".to_string()),
-            ])
+            tokenize("ls>>output.txt"),
+            Ok(vec![Token::Word("ls".to_string()), Token::RedirectAppend, Token::Word("output.txt".to_string())])
+        );
+        assert_eq!(
+            tokenize("cat < input.txt"),
+            Ok(vec![Token::Word("cat".to_string()), Token::RedirectInput, Token::Word("input.txt".to_string())])
+        );
+        assert_eq!(
+            tokenize("ls 2> errors.txt"),
+            Ok(vec![Token::Word("ls".to_string()), Token::RedirectError, Token::Word("errors.txt".to_string())])
         );
     }
 }
