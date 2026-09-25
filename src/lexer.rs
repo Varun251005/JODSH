@@ -29,6 +29,12 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, LexerError> {
             continue;
         }
 
+        if c == '|' {
+            tokens.push(Token::Pipe);
+            chars.next();
+            continue;
+        }
+
         let mut word = String::new();
         let mut in_word = true;
 
@@ -38,6 +44,10 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, LexerError> {
             match c {
                 ' ' | '\t' | '\n' => {
                     in_word = false;
+                }
+                '|' => {
+                    in_word = false;
+                    // Do not consume, outer loop will grab it
                 }
                 '\'' => {
                     chars.next(); // consume opening quote
@@ -168,6 +178,45 @@ mod tests {
         assert_eq!(
             tokenize("echo hello\\"),
             Err(LexerError::IncompleteEscape)
+        );
+    }
+
+    #[test]
+    fn test_pipe_with_spaces() {
+        assert_eq!(
+            tokenize("ls | grep src"),
+            Ok(vec![
+                Token::Word("ls".to_string()),
+                Token::Pipe,
+                Token::Word("grep".to_string()),
+                Token::Word("src".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_pipe_without_spaces() {
+        assert_eq!(
+            tokenize("ls|grep"),
+            Ok(vec![
+                Token::Word("ls".to_string()),
+                Token::Pipe,
+                Token::Word("grep".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_multiple_pipes() {
+        assert_eq!(
+            tokenize("ls | grep | wc"),
+            Ok(vec![
+                Token::Word("ls".to_string()),
+                Token::Pipe,
+                Token::Word("grep".to_string()),
+                Token::Pipe,
+                Token::Word("wc".to_string()),
+            ])
         );
     }
 }
