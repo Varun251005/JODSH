@@ -1,6 +1,13 @@
 #[derive(Debug, PartialEq, Clone)]
+pub enum WordSegment {
+    Unquoted(String),
+    SingleQuoted(String),
+    DoubleQuoted(String),
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum Token {
-    Word(String),
+    Word(Vec<WordSegment>),
     Pipe,
     RedirectOutput,
     RedirectAppend,
@@ -57,14 +64,44 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, LexerError> {
             continue;
         }
 
-        if c == '|' {
-            tokens.push(Token::Pipe);
+        if c == ';' {
+            tokens.push(Token::Semicolon);
             chars.next();
             continue;
         }
 
-        let mut word = String::new();
+        if c == '&' {
+            chars.next();
+            if let Some(&'&') = chars.peek() {
+                tokens.push(Token::AndIf);
+                chars.next();
+            } else {
+                tokens.push(Token::Background);
+            }
+            continue;
+        }
+
+        if c == '|' {
+            chars.next();
+            if let Some(&'|') = chars.peek() {
+                tokens.push(Token::OrIf);
+                chars.next();
+            } else {
+                tokens.push(Token::Pipe);
+            }
+            continue;
+        }
+
+        let mut segments = Vec::new();
         let mut in_word = true;
+        let mut current_unquoted = String::new();
+
+        let push_unquoted = |s: &mut String, segs: &mut Vec<WordSegment>| {
+            if !s.is_empty() {
+                segs.push(WordSegment::Unquoted(s.clone()));
+                s.clear();
+            }
+        };
 
         while in_word {
             let Some(&c) = chars.peek() else { break };
@@ -73,54 +110,62 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, LexerError> {
                 ' ' | '\t' | '\n' => {
                     in_word = false;
                 }
-                '|' | '<' | '>' => {
+                '|' | '<' | '>' | '&' | ';' => {
                     in_word = false;
                 }
                 '\'' => {
+                    push_unquoted(&mut current_unquoted, &mut segments);
                     chars.next(); // consume opening quote
                     let mut closed = false;
+                    let mut sq = String::new();
                     while let Some(sc) = chars.next() {
                         if sc == '\'' {
                             closed = true;
                             break;
                         }
-                        word.push(sc);
+                        sq.push(sc);
                     }
                     if !closed {
                         return Err(LexerError::UnterminatedSingleQuote);
                     }
+                    segments.push(WordSegment::SingleQuoted(sq));
                 }
                 '"' => {
+                    push_unquoted(&mut current_unquoted, &mut segments);
                     chars.next(); // consume opening quote
                     let mut closed = false;
+                    let mut dq = String::new();
                     while let Some(dc) = chars.next() {
                         if dc == '"' {
                             closed = true;
                             break;
                         }
-                        word.push(dc);
+                        dq.push(dc);
                     }
                     if !closed {
                         return Err(LexerError::UnterminatedDoubleQuote);
                     }
+                    segments.push(WordSegment::DoubleQuoted(dq));
                 }
                 '\\' => {
                     chars.next(); // consume backslash
                     if let Some(ec) = chars.next() {
-                        word.push(ec);
+                        current_unquoted.push(ec);
                     } else {
                         return Err(LexerError::IncompleteEscape);
                     }
                 }
                 _ => {
-                    word.push(c);
+                    current_unquoted.push(c);
                     chars.next();
                 }
             }
         }
 
-        if !word.is_empty() {
-            tokens.push(Token::Word(word));
+        push_unquoted(&mut current_unquoted, &mut segments);
+
+        if !segments.is_empty() {
+            tokens.push(Token::Word(segments));
         }
     }
 
@@ -131,9 +176,17 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, LexerError> {
 mod tests {
     use super::*;
 
+    fn word(s: &str) -> Token {
+        Token::Word(vec![WordSegment::Unquoted(s.to_string())])
+    }
+    
+    fn dword(s: &str) -> Token {
+        Token::Word(vec![WordSegment::DoubleQuoted(s.to_string())])
+    }
+
     #[test]
     fn test_simple_command() {
-        assert_eq!(tokenize("ls"), Ok(vec![Token::Word("ls".to_string())]));
+        assert_eq!(tokenize("ls"), Ok(vec![word("ls")]));
     }
 
     #[test]
@@ -141,8 +194,8 @@ mod tests {
         assert_eq!(
             tokenize("echo \"hello world\""),
             Ok(vec![
-                Token::Word("echo".to_string()),
-                Token::Word("hello world".to_string())
+                word("echo"),
+                dword("hello world")
             ])
         );
     }
@@ -152,10 +205,10 @@ mod tests {
         assert_eq!(
             tokenize("ls | grep src"),
             Ok(vec![
-                Token::Word("ls".to_string()),
+                word("ls"),
                 Token::Pipe,
-                Token::Word("grep".to_string()),
-                Token::Word("src".to_string()),
+                word("grep"),
+                word("src"),
             ])
         );
     }
@@ -164,19 +217,19 @@ mod tests {
     fn test_redirects() {
         assert_eq!(
             tokenize("ls > output.txt"),
-            Ok(vec![Token::Word("ls".to_string()), Token::RedirectOutput, Token::Word("output.txt".to_string())])
+            Ok(vec![word("ls"), Token::RedirectOutput, word("output.txt")])
         );
         assert_eq!(
             tokenize("ls>>output.txt"),
-            Ok(vec![Token::Word("ls".to_string()), Token::RedirectAppend, Token::Word("output.txt".to_string())])
+            Ok(vec![word("ls"), Token::RedirectAppend, word("output.txt")])
         );
         assert_eq!(
             tokenize("cat < input.txt"),
-            Ok(vec![Token::Word("cat".to_string()), Token::RedirectInput, Token::Word("input.txt".to_string())])
+            Ok(vec![word("cat"), Token::RedirectInput, word("input.txt")])
         );
         assert_eq!(
             tokenize("ls 2> errors.txt"),
-            Ok(vec![Token::Word("ls".to_string()), Token::RedirectError, Token::Word("errors.txt".to_string())])
+            Ok(vec![word("ls"), Token::RedirectError, word("errors.txt")])
         );
     }
 }
